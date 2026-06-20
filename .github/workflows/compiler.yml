@@ -1,0 +1,87 @@
+name: Auto Compile MRS
+
+on:
+  schedule:
+    - cron: '0 22 * * *' # UTC 22:00 (北京时间 06:00)
+  workflow_dispatch:
+  push:
+    paths:
+      - '*.list'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Fetch Latest Mihomo Version and Install
+        run: |
+          mkdir -p bin
+          echo "🔍 正在向 GitHub API 查询 Mihomo 最新版本标签..."
+          
+          # 动态获取最新 Release 的 tag 名字 (例如 v1.19.27)
+          LATEST_TAG=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          
+          # 如果 API 请求失败或被限流，设定一个保底版本
+          if [ -z "$LATEST_TAG" ]; then
+            echo "⚠️ 动态获取版本失败，可能触发 API 限流，启用保底版本 v1.19.26"
+            LATEST_TAG="v1.19.26"
+          fi
+          echo "🚀 检测到最新版本为: $LATEST_TAG"
+          
+          # 去除版本号开头的 'v' 字母，有些二进制包名不带 v
+          VERSION_NUM=$(echo "$LATEST_TAG" | sed 's/^v//')
+          
+          echo "📥 开始下载最新版二进制文件..."
+          # 使用动态变量拼接下载链接
+          curl -sSLf "https://github.com/MetaCubeX/mihomo/releases/download/${LATEST_TAG}/mihomo-linux-amd64-${LATEST_TAG}.gz" -o bin/mihomo.gz || \
+          curl -sSLf "https://github.com/MetaCubeX/mihomo/releases/download/${LATEST_TAG}/mihomo-linux-amd64-v${VERSION_NUM}.gz" -o bin/mihomo.gz
+          
+          # 解压并赋予权限
+          gzip -d bin/mihomo.gz
+          chmod +x bin/mihomo
+          sudo mv bin/mihomo /usr/local/bin/mihomo
+          echo "✅ Mihomo 内核部署成功，当前运行版本："
+          mihomo -v
+
+      - name: Compile Your Direct Rules
+        run: |
+          if [ -f direct-diy.list ]; then
+            echo "🧹 正在清洗 direct-diy.list 的无效字符..."
+            sed 's/\r$//; s/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' direct-diy.list > clean-direct.txt
+            
+            echo "⚙️ 正在编译直连规则集..."
+            mihomo convert-ruleset domain text clean-direct.txt direct-diy.mrs
+          fi
+
+      - name: Compile Your Proxy Rules
+        run: |
+          if [ -f proxy-diy.list ]; then
+            echo "🧹 正在清洗 proxy-diy.list 的无效字符..."
+            sed 's/\r$//; s/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' proxy-diy.list > clean-proxy.txt
+            
+            echo "⚙️ 正在编译代理规则集..."
+            mihomo convert-ruleset domain text clean-proxy.txt proxy-diy.mrs
+          fi
+
+      - name: Commit and Push Results
+        run: |
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions"
+          
+          # 仅在文件存在时暂存
+          [ -f direct-diy.mrs ] && git add direct-diy.mrs
+          [ -f proxy-diy.mrs ] && git add proxy-diy.mrs
+          
+          # 检查暂存区是否有实际改动
+          if ! git diff --staged --quiet; then
+            echo "📝 发现文件变动，正在提交..."
+            git commit -m "Automated update: Compiled MRS rules [skip ci]"
+            git push origin HEAD
+          else
+            echo "✅ 规则内容无实际变化，跳过本次推送。"
+          fi
