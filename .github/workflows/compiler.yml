@@ -1,6 +1,6 @@
 name: Auto Compile MRS
 
-on:
+于:
   schedule:
     - cron: '0 22 * * *' # UTC 22:00 (北京时间 06:00)
   workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Fetch Latest Mihomo Version and Install
         run: |
