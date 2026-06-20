@@ -1,6 +1,6 @@
 name: Auto Compile MRS
 
-于:
+on:
   schedule:
     - cron: '0 22 * * *' # UTC 22:00 (北京时间 06:00)
   workflow_dispatch:
